@@ -15,15 +15,16 @@
 
 typedef struct bakerSync{
     char supply[2];
-    sem_t chef_checked[6];
-    sem_t walnut, flour, milk, sugar;
-    sem_t mutex;
-    sem_t dessert_available;
-
     int shm_fd;
-
     int is_milk, is_flour, is_walnut, is_sugar;
 }BakerSync;
+
+typedef struct namedSemaphores{
+    sem_t *chef_checked[6];
+    sem_t *walnut, *flour, *milk, *sugar;
+    sem_t *mutex;
+    sem_t *dessert_available;
+}NamedSemaphores;
 
 sig_atomic_t interrupted = 0;
 
@@ -32,19 +33,21 @@ void sigint_handler(int sig){
         interrupted = 1;
 }
 
-int get_arguments(int argc, char *argv[], char **input_file);
+int get_arguments(int argc, char *argv[], char **input_file, char *semaphore_names[12]);
 BakerSync* init_shared_mem();
-int chef0(BakerSync *baker);
-int chef1(BakerSync *baker);
-int chef2(BakerSync *baker);
-int chef3(BakerSync *baker);
-int chef4(BakerSync *baker);
-int chef5(BakerSync *baker);
+int open_semaphores(NamedSemaphores *semaphores, char *semaphore_names[12]);
 
-void pusher0(BakerSync *baker);
-void pusher1(BakerSync *baker);
-void pusher2(BakerSync *baker);
-void pusher3(BakerSync *baker);
+int chef0(BakerSync *baker, NamedSemaphores *namedSemaphores);
+int chef1(BakerSync *baker, NamedSemaphores *namedSemaphores);
+int chef2(BakerSync *baker, NamedSemaphores *namedSemaphores);
+int chef3(BakerSync *baker, NamedSemaphores *namedSemaphores);
+int chef4(BakerSync *baker, NamedSemaphores *namedSemaphores);
+int chef5(BakerSync *baker, NamedSemaphores *namedSemaphores);
+
+void pusher0(BakerSync *baker, NamedSemaphores *namedSemaphores);
+void pusher1(BakerSync *baker, NamedSemaphores *namedSemaphores);
+void pusher2(BakerSync *baker, NamedSemaphores *namedSemaphores);
+void pusher3(BakerSync *baker, NamedSemaphores *namedSemaphores);
 
 
 int main(int argc, char *argv[])
@@ -54,8 +57,11 @@ int main(int argc, char *argv[])
     act.sa_handler = sigint_handler;
     sigaction(SIGINT, &act, NULL);
 
+    char *semaphore_names[] = {"chef_checked0", "chef_checked1", "chef_checked2", "chef_checked3", "chef_checked4", "chef_checked5", "walnut", "flour", "milk", "sugar", "mutex", "dessert_available"};
+
     char *input_file;
     BakerSync *bakerSync;
+    NamedSemaphores named_semaphores;
     pid_t chef_pid[6];
     pid_t pusher[4];
     int input_fd;
@@ -68,7 +74,7 @@ int main(int argc, char *argv[])
     int status;
     int dessert_count = 0;
 
-    if(get_arguments(argc, argv, &input_file) < 0){
+    if(get_arguments(argc, argv, &input_file, semaphore_names) < 0){
         return -1;
     }
 
@@ -77,9 +83,13 @@ int main(int argc, char *argv[])
         return -1;
     }
 
+    if(open_semaphores(&named_semaphores, semaphore_names) < 0){
+        return -1;
+    }
+
     chef_pid[0] = fork();
     if(chef_pid[0] == 0){
-        return chef0(bakerSync);
+        return chef0(bakerSync, &named_semaphores);
     }
     else if(chef_pid[0] < 0){
         return -1;
@@ -87,7 +97,7 @@ int main(int argc, char *argv[])
 
     chef_pid[1] = fork();
     if(chef_pid[1] == 0){
-        return chef1(bakerSync);
+        return chef1(bakerSync, &named_semaphores);
     }
     else if(chef_pid[1] < 0){
         //TODO wait children
@@ -96,7 +106,7 @@ int main(int argc, char *argv[])
 
     chef_pid[2] = fork();
     if(chef_pid[2] == 0){
-        return chef2(bakerSync);
+        return chef2(bakerSync, &named_semaphores);
     }
     else if(chef_pid[2] < 0){
         //TODO wait children
@@ -105,7 +115,7 @@ int main(int argc, char *argv[])
 
     chef_pid[3] = fork();
     if(chef_pid[3] == 0){
-        return chef3(bakerSync);
+        return chef3(bakerSync, &named_semaphores);
     }
     else if(chef_pid[3] < 0){
         //TODO wait children
@@ -114,7 +124,7 @@ int main(int argc, char *argv[])
 
     chef_pid[4] = fork();
     if(chef_pid[4] == 0){
-        return chef4(bakerSync);
+        return chef4(bakerSync, &named_semaphores);
     }
     else if(chef_pid[4] < 0){
         //TODO wait children
@@ -123,7 +133,7 @@ int main(int argc, char *argv[])
 
     chef_pid[5] = fork();
     if(chef_pid[5] == 0){
-        return chef5(bakerSync);
+        return chef5(bakerSync, &named_semaphores);
     }
     else if(chef_pid[5] < 0){
         //TODO wait children
@@ -132,7 +142,7 @@ int main(int argc, char *argv[])
 
     pusher[0] = fork();
     if(pusher[0] == 0){
-        pusher0(bakerSync);
+        pusher0(bakerSync, &named_semaphores);
         exit(EXIT_SUCCESS);
     }
     else if(pusher[0] < 0){
@@ -141,7 +151,7 @@ int main(int argc, char *argv[])
 
     pusher[1] = fork();
     if(pusher[1] == 0){
-        pusher1(bakerSync);
+        pusher1(bakerSync, &named_semaphores);
         exit(EXIT_SUCCESS);
     }
     else if(pusher[1] < 0){
@@ -150,7 +160,7 @@ int main(int argc, char *argv[])
 
     pusher[2] = fork();
     if(pusher[2] == 0){
-        pusher2(bakerSync);
+        pusher2(bakerSync, &named_semaphores);
         exit(EXIT_SUCCESS);
     }
     else if(pusher[2] < 0){
@@ -159,7 +169,7 @@ int main(int argc, char *argv[])
 
     pusher[3] = fork();
     if(pusher[3] == 0){
-        pusher3(bakerSync);
+        pusher3(bakerSync, &named_semaphores);
         exit(EXIT_SUCCESS);
     }
     else if(pusher[3] < 0){
@@ -212,19 +222,19 @@ int main(int argc, char *argv[])
         
 
         if(bakerSync->supply[0] == 'M' || bakerSync->supply[1] == 'M')
-            sem_post(&bakerSync->milk);
+            sem_post(named_semaphores.milk);
         if(bakerSync->supply[0] == 'F' || bakerSync->supply[1] == 'F')
-            sem_post(&bakerSync->flour);
+            sem_post(named_semaphores.flour);
         if(bakerSync->supply[0] == 'W' || bakerSync->supply[1] == 'W')
-            sem_post(&bakerSync->walnut);
+            sem_post(named_semaphores.walnut);
         if(bakerSync->supply[0] == 'S' || bakerSync->supply[1] == 'S')
-            sem_post(&bakerSync->sugar);
+            sem_post(named_semaphores.sugar);
 
         printf("the wholesaler (pid %d) delivers %s and %s (array: %c , %c)\n", getpid(), ingredient1, ingredient2, bakerSync->supply[0], bakerSync->supply[1]);
-        sem_post(&bakerSync->mutex);
+        sem_post(named_semaphores.mutex);
 
         printf("the wholesaler (pid %d) is waiting for the dessert (array: %c , %c)\n", getpid(), bakerSync->supply[0], bakerSync->supply[1]);
-        sem_wait(&bakerSync->dessert_available);
+        sem_wait(named_semaphores.dessert_available);
         printf("the wholesaler (pid %d) has obtained the dessert and left (array: %c , %c)\n", getpid(), bakerSync->supply[0], bakerSync->supply[1]);
         if(interrupted)
             break;
@@ -251,13 +261,14 @@ int main(int argc, char *argv[])
         perror("munmap");
     }
     
+    
 
     printf("the wholesaler (pid %d) is done (total desserts: %d)\n", getpid(), dessert_count);
 
     exit(EXIT_SUCCESS);
 }
 
-int _chef_work(BakerSync *baker, const char demand[2], int chef_num){
+int _chef_work(BakerSync *baker, NamedSemaphores *namedSemaphores, const char demand[2], int chef_num){
     int dessert_count = 0;
     int pid = getpid();
     char *ingredient1;
@@ -292,10 +303,10 @@ int _chef_work(BakerSync *baker, const char demand[2], int chef_num){
 
     while(1){
         printf("chef%d (pid %d) is waiting for %s and %s\n", chef_num, pid, ingredient1, ingredient2);
-        sem_wait(&baker->chef_checked[chef_num]);
+        sem_wait(namedSemaphores->chef_checked[chef_num]);
         if(interrupted)
             break;
-        sem_wait(&baker->mutex);
+        sem_wait(namedSemaphores->mutex);
         if(interrupted)
             break;
         if((baker->supply[0] == demand[0] && baker->supply[1] == demand[1]) || 
@@ -310,7 +321,7 @@ int _chef_work(BakerSync *baker, const char demand[2], int chef_num){
             baker->supply[1] = '-';
             printf("chef%d (pid %d) has taken the %s (array: %c , %c)\n", chef_num, pid, (supply_bak[1] == ingredient2[0] + 'A' - 'a') ? ingredient2 : ingredient1, baker->supply[0], baker->supply[1]);
             
-            sem_post(&baker->dessert_available);
+            sem_post(namedSemaphores->dessert_available);
         }
     }
 
@@ -320,11 +331,11 @@ int _chef_work(BakerSync *baker, const char demand[2], int chef_num){
 }
 
 //CHEFS
-int chef0(BakerSync *baker){
+int chef0(BakerSync *baker, NamedSemaphores *namedSemaphores){
     int dessert_count = 0;
     char demand[2] = {'W', 'S'};
     
-    dessert_count = _chef_work(baker, demand, 0);
+    dessert_count = _chef_work(baker, namedSemaphores, demand, 0);
 
     if(munmap(baker, sizeof(BakerSync)) < 0){
         perror("munmap");
@@ -333,11 +344,11 @@ int chef0(BakerSync *baker){
     return dessert_count;
 }
 
-int chef1(BakerSync *baker){
+int chef1(BakerSync *baker, NamedSemaphores *namedSemaphores){
     int dessert_count = 0;
     char demand[2] = {'W', 'F'};
     
-    dessert_count = _chef_work(baker, demand, 1);
+    dessert_count = _chef_work(baker, namedSemaphores, demand, 1);
 
     if(munmap(baker, sizeof(BakerSync)) < 0){
         perror("munmap");
@@ -346,11 +357,11 @@ int chef1(BakerSync *baker){
     return dessert_count;
 }
 
-int chef2(BakerSync *baker){
+int chef2(BakerSync *baker, NamedSemaphores *namedSemaphores){
     int dessert_count = 0;
     char demand[2] = {'F', 'S'};
     
-    dessert_count = _chef_work(baker, demand, 2);
+    dessert_count = _chef_work(baker, namedSemaphores, demand, 2);
 
     if(munmap(baker, sizeof(BakerSync)) < 0){
         perror("munmap");
@@ -359,11 +370,11 @@ int chef2(BakerSync *baker){
     return dessert_count;
 }
 
-int chef3(BakerSync *baker){
+int chef3(BakerSync *baker, NamedSemaphores *namedSemaphores){
     int dessert_count = 0;
     char demand[2] = {'F', 'M'};
     
-    dessert_count = _chef_work(baker, demand, 3);
+    dessert_count = _chef_work(baker, namedSemaphores, demand, 3);
 
     if(munmap(baker, sizeof(BakerSync)) < 0){
         perror("munmap");
@@ -372,11 +383,11 @@ int chef3(BakerSync *baker){
     return dessert_count;
 }
 
-int chef4(BakerSync *baker){
+int chef4(BakerSync *baker, NamedSemaphores *namedSemaphores){
     int dessert_count = 0;
     char demand[2] = {'M', 'W'};
     
-    dessert_count = _chef_work(baker, demand, 4);
+    dessert_count = _chef_work(baker, namedSemaphores, demand, 4);
 
     if(munmap(baker, sizeof(BakerSync)) < 0){
         perror("munmap");
@@ -385,11 +396,11 @@ int chef4(BakerSync *baker){
     return dessert_count;
 }
 
-int chef5(BakerSync *baker){
+int chef5(BakerSync *baker, NamedSemaphores *namedSemaphores){
     int dessert_count = 0;
     char demand[2] = {'M', 'S'};
     
-    dessert_count = _chef_work(baker, demand, 5);
+    dessert_count = _chef_work(baker, namedSemaphores, demand, 5);
 
     if(munmap(baker, sizeof(BakerSync)) < 0){
         perror("munmap");
@@ -400,30 +411,30 @@ int chef5(BakerSync *baker){
 //CHEFS END
 
 //CHEF HELPER
-void pusher0(BakerSync *baker){
+void pusher0(BakerSync *baker, NamedSemaphores *namedSemaphores){
     while(1){
-        sem_wait(&baker->milk);
+        sem_wait(namedSemaphores->milk);
         if(interrupted)
             break;
-        sem_wait(&baker->mutex);
+        sem_wait(namedSemaphores->mutex);
         if(interrupted)
             break;
         if(baker->is_flour){
             baker->is_flour = 0;
-            sem_post(&baker->chef_checked[3]);
+            sem_post(namedSemaphores->chef_checked[3]);
         }
         else if(baker->is_walnut){
             baker->is_walnut = 0;
-            sem_post(&baker->chef_checked[4]);
+            sem_post(namedSemaphores->chef_checked[4]);
         }
         else if(baker->is_sugar){
             baker->is_sugar = 0;
-            sem_post(&baker->chef_checked[5]);
+            sem_post(namedSemaphores->chef_checked[5]);
         }
         else{
             baker->is_milk = 1;
         }
-        sem_post(&baker->mutex);
+        sem_post(namedSemaphores->mutex);
     }
 
     if(munmap(baker, sizeof(BakerSync)) < 0){
@@ -431,30 +442,30 @@ void pusher0(BakerSync *baker){
     }
 }
 
-void pusher1(BakerSync *baker){
+void pusher1(BakerSync *baker, NamedSemaphores *namedSemaphores){
     while(1){
-        sem_wait(&baker->flour);
+        sem_wait(namedSemaphores->flour);
         if(interrupted)
             break;
-        sem_wait(&baker->mutex);
+        sem_wait(namedSemaphores->mutex);
         if(interrupted)
             break;
         if(baker->is_milk){
             baker->is_milk = 0;
-            sem_post(&baker->chef_checked[3]);
+            sem_post(namedSemaphores->chef_checked[3]);
         }
         else if(baker->is_walnut){
             baker->is_walnut = 0;
-            sem_post(&baker->chef_checked[1]);
+            sem_post(namedSemaphores->chef_checked[1]);
         }
         else if(baker->is_sugar){
             baker->is_sugar = 0;
-            sem_post(&baker->chef_checked[2]);
+            sem_post(namedSemaphores->chef_checked[2]);
         }
         else{
             baker->is_flour = 1;
         }
-        sem_post(&baker->mutex);
+        sem_post(namedSemaphores->mutex);
     }
 
     if(munmap(baker, sizeof(BakerSync)) < 0){
@@ -462,30 +473,30 @@ void pusher1(BakerSync *baker){
     }
 }
 
-void pusher2(BakerSync *baker){
+void pusher2(BakerSync *baker, NamedSemaphores *namedSemaphores){
     while(1){
-        sem_wait(&baker->walnut);
+        sem_wait(namedSemaphores->walnut);
         if(interrupted)
             break;
-        sem_wait(&baker->mutex);
+        sem_wait(namedSemaphores->mutex);
         if(interrupted)
             break;
         if(baker->is_milk){
             baker->is_milk = 0;
-            sem_post(&baker->chef_checked[4]);
+            sem_post(namedSemaphores->chef_checked[4]);
         }
         else if(baker->is_flour){
             baker->is_flour = 0;
-            sem_post(&baker->chef_checked[1]);
+            sem_post(namedSemaphores->chef_checked[1]);
         }
         else if(baker->is_sugar){
             baker->is_sugar = 0;
-            sem_post(&baker->chef_checked[0]);
+            sem_post(namedSemaphores->chef_checked[0]);
         }
         else{
             baker->is_walnut = 1;
         }
-        sem_post(&baker->mutex);
+        sem_post(namedSemaphores->mutex);
     }
 
     if(munmap(baker, sizeof(BakerSync)) < 0){
@@ -493,30 +504,30 @@ void pusher2(BakerSync *baker){
     }
 }
 
-void pusher3(BakerSync *baker){
+void pusher3(BakerSync *baker, NamedSemaphores *namedSemaphores){
     while(1){
-        sem_wait(&baker->sugar);
+        sem_wait(namedSemaphores->sugar);
         if(interrupted)
             break;
-        sem_wait(&baker->mutex);
+        sem_wait(namedSemaphores->mutex);
         if(interrupted)
             break;
         if(baker->is_milk){
             baker->is_milk = 0;
-            sem_post(&baker->chef_checked[5]);
+            sem_post(namedSemaphores->chef_checked[5]);
         }
         else if(baker->is_flour){
             baker->is_flour = 0;
-            sem_post(&baker->chef_checked[2]);
+            sem_post(namedSemaphores->chef_checked[2]);
         }
         else if(baker->is_walnut){
             baker->is_walnut = 0;
-            sem_post(&baker->chef_checked[0]);
+            sem_post(namedSemaphores->chef_checked[0]);
         }
         else{
             baker->is_sugar = 1;
         }
-        sem_post(&baker->mutex);
+        sem_post(namedSemaphores->mutex);
     }
 
     if(munmap(baker, sizeof(BakerSync)) < 0){
@@ -525,11 +536,21 @@ void pusher3(BakerSync *baker){
 }
 //HELPER END
 
-int get_arguments(int argc, char *argv[], char **input_file){
+int get_arguments(int argc, char *argv[], char **input_file, char *semaphore_names[12]){
     *input_file = NULL;
     for (int i = 1; i < argc; i++){
         if (strcmp(argv[i], "-i") == 0){
             *input_file = argv[i + 1];
+        }
+        else if(strcmp(argv[i], "-n") == 0){
+            i++;
+            for (int j = 0; j < 12; j++){
+                if(j + i == argc || strcmp(argv[i + j], "-i") == 0) {
+                    i += (j - 1);
+                    break;
+                }
+                semaphore_names[j] = argv[i + j];
+            }
         }
     }
 
@@ -540,43 +561,6 @@ int get_arguments(int argc, char *argv[], char **input_file){
 }
 
 int _sem_initializations(BakerSync *baker){
-    for(int i = 0; i < 6; ++i){
-        if(sem_init(&baker->chef_checked[i], 1, 0) < 0){
-            perror("sem_init");
-            return -1;
-        }
-    }
-
-    if(sem_init(&baker->dessert_available, 1, 0) < 0){
-        perror("sem_init");
-        return -1;
-    }
-
-    if(sem_init(&baker->mutex, 1, 0) < 0){
-        perror("sem_init");
-        return -1;
-    }
-
-    if(sem_init(&baker->milk, 1, 0) < 0){
-        perror("sem_init");
-        return -1;
-    }
-
-    if(sem_init(&baker->sugar, 1, 0) < 0){
-        perror("sem_init");
-        return -1;
-    }
-
-    if(sem_init(&baker->walnut, 1, 0) < 0){
-        perror("sem_init");
-        return -1;
-    }
-
-    if(sem_init(&baker->flour, 1, 0) < 0){
-        perror("sem_init");
-        return -1;
-    }
-
     baker->is_flour = 0;
     baker->is_milk = 0;
     baker->is_sugar = 0;
@@ -617,4 +601,54 @@ BakerSync* init_shared_mem(){
     baker->shm_fd = shm_fd;
 
     return baker;
+}
+
+
+
+int open_semaphores(NamedSemaphores *semaphores, char *semaphore_names[12]){
+    for(int i = 0; i < 6; ++i){
+        semaphores->chef_checked[i] = sem_open(semaphore_names[i], O_CREAT | O_RDWR, 0666, 0);
+        if(semaphores->chef_checked[i] == SEM_FAILED){
+            perror("sem_open");
+            return -1;
+        }
+    }
+
+    semaphores->walnut = sem_open(semaphore_names[6], O_CREAT | O_RDWR, 0666, 0);
+    if(semaphores->walnut == SEM_FAILED){
+        perror("sem_open");
+        return -1;
+    }
+
+    semaphores->flour = sem_open(semaphore_names[7], O_CREAT | O_RDWR, 0666, 0);
+    if(semaphores->flour == SEM_FAILED){
+        perror("sem_open");
+        return -1;
+    }
+
+    semaphores->milk = sem_open(semaphore_names[8], O_CREAT | O_RDWR, 0666, 0);
+    if(semaphores->milk == SEM_FAILED){
+        perror("sem_open");
+        return -1;
+    }
+
+    semaphores->sugar = sem_open(semaphore_names[9], O_CREAT | O_RDWR, 0666, 0);
+    if(semaphores->sugar == SEM_FAILED){
+        perror("sem_open");
+        return -1;
+    }
+
+    semaphores->dessert_available = sem_open(semaphore_names[10], O_CREAT | O_RDWR, 0666, 0);
+    if(semaphores->dessert_available == SEM_FAILED){
+        perror("sem_open");
+        return -1;
+    }
+
+    semaphores->mutex = sem_open(semaphore_names[11], O_CREAT | O_RDWR, 0666, 0);
+    if(semaphores->mutex == SEM_FAILED){
+        perror("sem_open");
+        return -1;
+    }
+
+    return 0;
 }
