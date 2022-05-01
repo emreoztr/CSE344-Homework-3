@@ -15,7 +15,6 @@
 
 typedef struct bakerSync{
     char supply[2];
-    int shm_fd;
     int is_milk, is_flour, is_walnut, is_sugar;
 }BakerSync;
 
@@ -36,6 +35,8 @@ void sigint_handler(int sig){
 int get_arguments(int argc, char *argv[], char **input_file, char *semaphore_names[12]);
 BakerSync* init_shared_mem();
 int open_semaphores(NamedSemaphores *semaphores, char *semaphore_names[12]);
+void close_semaphores(NamedSemaphores *semaphores);
+void unlink_semaphores(char *semaphore_names[12]);
 
 int chef0(BakerSync *baker, NamedSemaphores *namedSemaphores);
 int chef1(BakerSync *baker, NamedSemaphores *namedSemaphores);
@@ -56,7 +57,6 @@ int main(int argc, char *argv[])
     memset(&act, 0, sizeof(act));
     act.sa_handler = sigint_handler;
     sigaction(SIGINT, &act, NULL);
-
     char *semaphore_names[] = {"chef_checked0", "chef_checked1", "chef_checked2", "chef_checked3", "chef_checked4", "chef_checked5", "walnut", "flour", "milk", "sugar", "mutex", "dessert_available"};
 
     char *input_file;
@@ -261,7 +261,8 @@ int main(int argc, char *argv[])
         perror("munmap");
     }
     
-    
+    close_semaphores(&named_semaphores);
+    unlink_semaphores(semaphore_names);
 
     printf("the wholesaler (pid %d) is done (total desserts: %d)\n", getpid(), dessert_count);
 
@@ -340,7 +341,7 @@ int chef0(BakerSync *baker, NamedSemaphores *namedSemaphores){
     if(munmap(baker, sizeof(BakerSync)) < 0){
         perror("munmap");
     }
-
+    close_semaphores(namedSemaphores);
     return dessert_count;
 }
 
@@ -353,7 +354,7 @@ int chef1(BakerSync *baker, NamedSemaphores *namedSemaphores){
     if(munmap(baker, sizeof(BakerSync)) < 0){
         perror("munmap");
     }
-
+    close_semaphores(namedSemaphores);
     return dessert_count;
 }
 
@@ -366,7 +367,7 @@ int chef2(BakerSync *baker, NamedSemaphores *namedSemaphores){
     if(munmap(baker, sizeof(BakerSync)) < 0){
         perror("munmap");
     }
-
+    close_semaphores(namedSemaphores);
     return dessert_count;
 }
 
@@ -379,7 +380,7 @@ int chef3(BakerSync *baker, NamedSemaphores *namedSemaphores){
     if(munmap(baker, sizeof(BakerSync)) < 0){
         perror("munmap");
     }
-
+    close_semaphores(namedSemaphores);
     return dessert_count;
 }
 
@@ -392,7 +393,7 @@ int chef4(BakerSync *baker, NamedSemaphores *namedSemaphores){
     if(munmap(baker, sizeof(BakerSync)) < 0){
         perror("munmap");
     }
-
+    close_semaphores(namedSemaphores);
     return dessert_count;
 }
 
@@ -405,7 +406,7 @@ int chef5(BakerSync *baker, NamedSemaphores *namedSemaphores){
     if(munmap(baker, sizeof(BakerSync)) < 0){
         perror("munmap");
     }
-
+    close_semaphores(namedSemaphores);
     return dessert_count;
 }
 //CHEFS END
@@ -440,6 +441,7 @@ void pusher0(BakerSync *baker, NamedSemaphores *namedSemaphores){
     if(munmap(baker, sizeof(BakerSync)) < 0){
         perror("munmap");
     }
+    close_semaphores(namedSemaphores);
 }
 
 void pusher1(BakerSync *baker, NamedSemaphores *namedSemaphores){
@@ -471,6 +473,7 @@ void pusher1(BakerSync *baker, NamedSemaphores *namedSemaphores){
     if(munmap(baker, sizeof(BakerSync)) < 0){
         perror("munmap");
     }
+    close_semaphores(namedSemaphores);
 }
 
 void pusher2(BakerSync *baker, NamedSemaphores *namedSemaphores){
@@ -502,6 +505,7 @@ void pusher2(BakerSync *baker, NamedSemaphores *namedSemaphores){
     if(munmap(baker, sizeof(BakerSync)) < 0){
         perror("munmap");
     }
+    close_semaphores(namedSemaphores);
 }
 
 void pusher3(BakerSync *baker, NamedSemaphores *namedSemaphores){
@@ -533,6 +537,7 @@ void pusher3(BakerSync *baker, NamedSemaphores *namedSemaphores){
     if(munmap(baker, sizeof(BakerSync)) < 0){
         perror("munmap");
     }
+    close_semaphores(namedSemaphores);
 }
 //HELPER END
 
@@ -598,8 +603,6 @@ BakerSync* init_shared_mem(){
         return NULL;
     }
 
-    baker->shm_fd = shm_fd;
-
     return baker;
 }
 
@@ -652,3 +655,44 @@ int open_semaphores(NamedSemaphores *semaphores, char *semaphore_names[12]){
 
     return 0;
 }
+
+void close_semaphores(NamedSemaphores *semaphores){
+    for(int i = 0; i < 6; ++i){
+        if(sem_close(semaphores->chef_checked[i]) < 0){
+            perror("sem_close");
+        }
+    }
+
+    if(sem_close(semaphores->walnut) < 0){
+        perror("sem_close");
+    }
+
+    if(sem_close(semaphores->flour) < 0){
+        perror("sem_close");
+    }
+
+    if(sem_close(semaphores->milk) < 0){
+        perror("sem_close");
+    }
+
+    if(sem_close(semaphores->sugar) < 0){
+        perror("sem_close");
+    }   
+
+    if(sem_close(semaphores->dessert_available) < 0){
+        perror("sem_close");
+    }
+
+    if(sem_close(semaphores->mutex) < 0){
+        perror("sem_close");
+    }
+}
+
+void unlink_semaphores(char *semaphore_names[12]){
+    for(int i = 0; i < 12; ++i){
+        if(sem_unlink(semaphore_names[i]) < 0){
+            perror("sem_unlink");
+        }
+    }
+}
+
